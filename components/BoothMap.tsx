@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useEffect, useMemo, useState } from "react";
-import { CircleMarker, MapContainer, Marker, Pane, Polygon, Polyline, Popup, Tooltip, useMap } from "react-leaflet";
+import { CircleMarker, MapContainer, Marker, Polygon, Polyline, Popup, Tooltip, useMap } from "react-leaflet";
 import L, { LatLngExpression } from "leaflet";
 import { AlertCircle, CheckCircle2, Loader2, Navigation } from "lucide-react";
 import { BoothBottomSheet } from "@/components/BoothBottomSheet";
@@ -91,19 +91,6 @@ function facilityCenter(polygon: readonly (readonly [number, number])[]) {
   return [y, x] as LatLngTuple;
 }
 
-function fallbackBoothRectangle(position: LatLngTuple): LatLngExpression[] {
-  const [y, x] = position;
-  const height = 9;
-  const width = 14;
-
-  return [
-    [y - height / 2, x - width / 2],
-    [y - height / 2, x + width / 2],
-    [y + height / 2, x + width / 2],
-    [y + height / 2, x - width / 2]
-  ];
-}
-
 export function BoothMap({ exhibitors, initialBooth }: { exhibitors: ExhibitorWithBooth[]; initialBooth?: string }) {
   const [category, setCategory] = useState("");
   const [favorites, setFavorites] = useState<string[]>([]);
@@ -125,46 +112,16 @@ export function BoothMap({ exhibitors, initialBooth }: { exhibitors: ExhibitorWi
     });
   }, [category, exhibitors, query]);
 
-  const activeCheckpoint = useMemo(() => {
-    return QR_CHECKPOINTS.find((item) => item.id === qrCheckpoint) ?? QR_CHECKPOINTS[0];
-  }, [qrCheckpoint]);
-
   const routeDetails = useMemo(() => {
     const selectedPosition = selected ? getBoothPosition(selected) : null;
     const boothNumber = selected?.booth?.boothNumber;
 
     if (!selectedPosition || !boothNumber) return null;
 
-    try {
-      const builtRoute = buildRouteToBooth(qrCheckpoint, selectedPosition, boothNumber);
+    return buildRouteToBooth(qrCheckpoint, selectedPosition, boothNumber);
+  }, [qrCheckpoint, selected]);
 
-      if (builtRoute?.points?.length >= 2 && Number.isFinite(builtRoute.distance)) {
-        return builtRoute;
-      }
-    } catch {
-      // Fallback below keeps the navigator usable even if the corridor graph fails.
-    }
-
-    const directDistance = Math.round(
-      Math.hypot(
-        activeCheckpoint.position[0] - selectedPosition[0],
-        activeCheckpoint.position[1] - selectedPosition[1]
-      )
-    );
-
-    return {
-      points: [activeCheckpoint.position, selectedPosition],
-      distance: directDistance,
-      estimatedMinutes: Math.max(1, Math.ceil(directDistance / 75)),
-      instructions: [
-        `Start at ${activeCheckpoint.name}.`,
-        `Follow the highlighted route to booth ${boothNumber}.`,
-        "Look for the highlighted stand when you arrive."
-      ]
-    };
-  }, [activeCheckpoint, qrCheckpoint, selected]);
-
-  const route = routeDetails?.points?.length ? (routeDetails.points as LatLngExpression[]) : undefined;
+  const route = routeDetails?.points as LatLngExpression[] | undefined;
 
   const recommendations = useMemo(() => {
     if (!selected) return [];
@@ -215,21 +172,6 @@ export function BoothMap({ exhibitors, initialBooth }: { exhibitors: ExhibitorWi
     const match = exhibitors.find((item) => item.booth?.boothNumber.toLowerCase() === normalized);
     if (match) setSelected(match);
   }, [exhibitors, initialBooth]);
-
-  useEffect(() => {
-    const trimmedQuery = query.trim().toLowerCase();
-
-    if (trimmedQuery.length < 2 || visibleExhibitors.length === 0) return;
-
-    const exactOrBestMatch =
-      visibleExhibitors.find((exhibitor) => exhibitor.booth?.boothNumber.toLowerCase() === trimmedQuery) ??
-      visibleExhibitors.find((exhibitor) => exhibitor.companyName.toLowerCase().includes(trimmedQuery)) ??
-      visibleExhibitors[0];
-
-    if (exactOrBestMatch && selected?.id !== exactOrBestMatch.id) {
-      setSelected(exactOrBestMatch);
-    }
-  }, [query, selected?.id, visibleExhibitors]);
 
   function persistFavorites(nextFavorites: string[]) {
     setFavorites(nextFavorites);
@@ -316,97 +258,74 @@ export function BoothMap({ exhibitors, initialBooth }: { exhibitors: ExhibitorWi
           const position = getBoothPosition(exhibitor);
           if (!position) return null;
 
-          const savedPolygon = parseBoothPolygon(exhibitor.booth?.polygon);
-          const polygon = savedPolygon ?? fallbackBoothRectangle(position);
+          const polygon = parseBoothPolygon(exhibitor.booth?.polygon);
           const isSelected = selected?.id === exhibitor.id;
           const isFavorite = favorites.includes(exhibitor.id);
-          const hasActiveSearch = Boolean(query.trim());
-          const shouldShowContext = !selected || isSelected || hasActiveSearch;
-          const shouldLabel = isSelected || hasActiveSearch || (!selected && visibleExhibitors.length <= 85);
-
-          if (!shouldShowContext && !isSelected) return null;
+          const shouldLabel = isSelected || Boolean(query.trim()) || visibleExhibitors.length <= 60;
 
           return (
             <Fragment key={exhibitor.id}>
-              <Polygon
-                pathOptions={{
-                  color: isSelected ? "#E96B2C" : hasActiveSearch ? "#C99A2E" : "#D8C58B",
-                  fillColor: isSelected ? "#E96B2C" : isFavorite ? "#1F5B3B" : "#ffffff",
-                  fillOpacity: isSelected ? 0.92 : selected ? 0.12 : 0.42,
-                  opacity: isSelected ? 1 : selected ? 0.32 : 0.85,
-                  weight: isSelected ? 5 : selected ? 1 : 1.4
-                }}
-                positions={polygon}
-                eventHandlers={{ click: () => selectBooth(exhibitor) }}
-              >
-                <Popup>
-                  <strong>{exhibitor.companyName}</strong>
-                  <br />
-                  Booth {exhibitor.booth?.boothNumber}
-                </Popup>
-              </Polygon>
-
-              {shouldLabel ? (
-                <Marker
-                  position={position}
-                  icon={boothLabelIcon(exhibitor.booth?.boothNumber ?? "")}
-                  interactive={false}
-                />
-              ) : null}
+              {polygon ? (
+                <Polygon
+                  pathOptions={{
+                    color: isSelected ? "#E96B2C" : "#C9B57A",
+                    fillColor: isSelected ? "#E96B2C" : isFavorite ? "#1F5B3B" : "#ffffff",
+                    fillOpacity: isSelected ? 0.88 : selected ? 0.16 : 0.38,
+                    weight: isSelected ? 4 : selected ? 1 : 1.5
+                  }}
+                  positions={polygon}
+                  eventHandlers={{ click: () => selectBooth(exhibitor) }}
+                >
+                  <Popup>
+                    <strong>{exhibitor.companyName}</strong>
+                    <br />
+                    Booth {exhibitor.booth?.boothNumber}
+                  </Popup>
+                </Polygon>
+              ) : (
+                <CircleMarker
+                  center={position}
+                  radius={isSelected ? 8 : 4}
+                  pathOptions={{
+                    color: "#ffffff",
+                    fillColor: isSelected ? "#E96B2C" : "#1F5B3B",
+                    fillOpacity: isSelected ? 0.95 : selected ? 0.2 : 0.55,
+                    weight: isSelected ? 3 : 1
+                  }}
+                  eventHandlers={{ click: () => selectBooth(exhibitor) }}
+                >
+                  <Popup>
+                    <strong>{exhibitor.companyName}</strong>
+                    <br />
+                    Booth {exhibitor.booth?.boothNumber}
+                  </Popup>
+                </CircleMarker>
+              )}
+              {shouldLabel ? <Marker position={position} icon={boothLabelIcon(exhibitor.booth?.boothNumber ?? "")} interactive={false} /> : null}
             </Fragment>
           );
         })}
 
-        {selected ? (
-          <CircleMarker center={activeCheckpoint.position} radius={11} pathOptions={{ color: "#ffffff", fillColor: "#0F766E", fillOpacity: 0.98, weight: 3 }}>
-            <Tooltip direction="top" offset={[0, -8]} permanent>
-              Start: {activeCheckpoint.name}
-            </Tooltip>
-            <Popup>Selected QR checkpoint start position</Popup>
-          </CircleMarker>
-        ) : userLocation ? (
+        {userLocation ? (
           <CircleMarker center={userLocation} radius={10} pathOptions={{ color: "#ffffff", fillColor: "#1F5B3B", fillOpacity: 0.95, weight: 3 }}>
             <Tooltip direction="top" offset={[0, -8]} permanent>
-              {activeCheckpoint.name ?? "You are here"}
+              {QR_CHECKPOINTS.find((item) => item.id === qrCheckpoint)?.name ?? "You are here"}
             </Tooltip>
             <Popup>QR checkpoint position</Popup>
           </CircleMarker>
         ) : null}
 
         {route ? (
-          <Pane name="kilifair-route-pane" style={{ zIndex: 720 }}>
-            <Polyline
-              positions={route}
-              pathOptions={{
-                color: "#ffffff",
-                weight: 17,
-                opacity: 0.95,
-                lineCap: "round",
-                lineJoin: "round"
-              }}
-            />
-            <Polyline
-              positions={route}
-              pathOptions={{
-                color: "#0F766E",
-                weight: 10,
-                opacity: 1,
-                lineCap: "round",
-                lineJoin: "round"
-              }}
-            />
-            <Polyline
-              positions={route}
-              pathOptions={{
-                color: "#E96B2C",
-                weight: 3,
-                opacity: 0.95,
-                dashArray: "10 12",
-                lineCap: "round",
-                lineJoin: "round"
-              }}
-            />
-          </Pane>
+          <Polyline
+            positions={route}
+            pathOptions={{
+              color: "#0F766E",
+              weight: 9,
+              opacity: 0.95,
+              lineCap: "round",
+              lineJoin: "round"
+            }}
+          />
         ) : null}
       </MapContainer>
 
