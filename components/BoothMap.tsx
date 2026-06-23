@@ -15,25 +15,11 @@ import {
   KILIFAIR_SELECTED_ZOOM,
   parseBoothPolygon
 } from "@/lib/map";
-import { DEMO_ENTRANCE_LOCATION, EXPO_BOUNDS, EXPO_ZONES } from "@/lib/expoLayout";
+import { EXPO_BOUNDS, EXPO_ZONES } from "@/lib/expoLayout";
 import { buildRouteToBooth, QR_CHECKPOINTS } from "@/lib/navigationGraph";
 import type { ExhibitorWithBooth, LatLngTuple, LocationStatus } from "@/types";
 
 const FAVORITES_STORAGE_KEY = "kilifair.favoriteBooths";
-
-const boothIcon = L.divIcon({
-  className: "",
-  html: '<div style="height:20px;width:20px;border-radius:9999px;background:#E96B2C;border:3px solid white;box-shadow:0 8px 20px rgba(31,91,59,.35)"></div>',
-  iconSize: [20, 20],
-  iconAnchor: [10, 10]
-});
-
-const favoriteBoothIcon = L.divIcon({
-  className: "",
-  html: '<div style="display:grid;place-items:center;height:24px;width:24px;border-radius:9999px;background:#1F5B3B;border:3px solid white;box-shadow:0 8px 20px rgba(31,91,59,.35);color:white;font-size:12px">&hearts;</div>',
-  iconSize: [24, 24],
-  iconAnchor: [12, 12]
-});
 
 function labelIcon(label: string, sublabel?: string) {
   return L.divIcon({
@@ -129,11 +115,44 @@ export function BoothMap({ exhibitors, initialBooth }: { exhibitors: ExhibitorWi
   const routeDetails = useMemo(() => {
     const selectedPosition = selected ? getBoothPosition(selected) : null;
     const boothNumber = selected?.booth?.boothNumber;
-    if (!userLocation || !selectedPosition || !boothNumber) return null;
+
+    if (!selectedPosition || !boothNumber) return null;
+
     return buildRouteToBooth(qrCheckpoint, selectedPosition, boothNumber);
-  }, [qrCheckpoint, selected, userLocation]);
+  }, [qrCheckpoint, selected]);
 
   const route = routeDetails?.points as LatLngExpression[] | undefined;
+
+  const recommendations = useMemo(() => {
+    if (!selected) return [];
+
+    const selectedPosition = getBoothPosition(selected);
+
+    return exhibitors
+      .filter((exhibitor) => exhibitor.id !== selected.id && exhibitor.booth)
+      .map((exhibitor) => {
+        const position = getBoothPosition(exhibitor);
+        const sameCategory = exhibitor.category.slug === selected.category.slug;
+
+        const distance =
+          selectedPosition && position
+            ? Math.round(
+                Math.hypot(
+                  position[0] - selectedPosition[0],
+                  position[1] - selectedPosition[1]
+                )
+              )
+            : 99999;
+
+        return {
+          exhibitor,
+          distance,
+          score: (sameCategory ? 0 : 10000) + distance
+        };
+      })
+      .sort((a, b) => a.score - b.score)
+      .slice(0, 4);
+  }, [exhibitors, selected]);
 
   useEffect(() => {
     const saved = window.localStorage.getItem(FAVORITES_STORAGE_KEY);
@@ -196,6 +215,7 @@ export function BoothMap({ exhibitors, initialBooth }: { exhibitors: ExhibitorWi
     setCategory("");
     setQuery("");
     setSelected(null);
+    setUserLocation(null);
     setLocationMessage(null);
     setResetNonce((value) => value + 1);
   }
@@ -241,29 +261,46 @@ export function BoothMap({ exhibitors, initialBooth }: { exhibitors: ExhibitorWi
           const polygon = parseBoothPolygon(exhibitor.booth?.polygon);
           const isSelected = selected?.id === exhibitor.id;
           const isFavorite = favorites.includes(exhibitor.id);
-          const shouldLabel = isSelected || visibleExhibitors.length <= 90;
+          const shouldLabel = isSelected || Boolean(query.trim()) || visibleExhibitors.length <= 60;
 
           return (
             <Fragment key={exhibitor.id}>
               {polygon ? (
                 <Polygon
                   pathOptions={{
-                    color: isSelected ? "#E96B2C" : "#1F5B3B",
-                    fillColor: isFavorite ? "#1F5B3B" : "#ffffff",
-                    fillOpacity: isSelected ? 0.78 : 0.5,
-                    weight: isSelected ? 3 : 1
+                    color: isSelected ? "#E96B2C" : "#C9B57A",
+                    fillColor: isSelected ? "#E96B2C" : isFavorite ? "#1F5B3B" : "#ffffff",
+                    fillOpacity: isSelected ? 0.88 : selected ? 0.16 : 0.38,
+                    weight: isSelected ? 4 : selected ? 1 : 1.5
                   }}
                   positions={polygon}
                   eventHandlers={{ click: () => selectBooth(exhibitor) }}
-                />
-              ) : null}
-              <Marker position={position} icon={isFavorite ? favoriteBoothIcon : boothIcon} eventHandlers={{ click: () => selectBooth(exhibitor) }}>
-                <Popup>
-                  <strong>{exhibitor.companyName}</strong>
-                  <br />
-                  Booth {exhibitor.booth?.boothNumber}
-                </Popup>
-              </Marker>
+                >
+                  <Popup>
+                    <strong>{exhibitor.companyName}</strong>
+                    <br />
+                    Booth {exhibitor.booth?.boothNumber}
+                  </Popup>
+                </Polygon>
+              ) : (
+                <CircleMarker
+                  center={position}
+                  radius={isSelected ? 8 : 4}
+                  pathOptions={{
+                    color: "#ffffff",
+                    fillColor: isSelected ? "#E96B2C" : "#1F5B3B",
+                    fillOpacity: isSelected ? 0.95 : selected ? 0.2 : 0.55,
+                    weight: isSelected ? 3 : 1
+                  }}
+                  eventHandlers={{ click: () => selectBooth(exhibitor) }}
+                >
+                  <Popup>
+                    <strong>{exhibitor.companyName}</strong>
+                    <br />
+                    Booth {exhibitor.booth?.boothNumber}
+                  </Popup>
+                </CircleMarker>
+              )}
               {shouldLabel ? <Marker position={position} icon={boothLabelIcon(exhibitor.booth?.boothNumber ?? "")} interactive={false} /> : null}
             </Fragment>
           );
@@ -281,7 +318,13 @@ export function BoothMap({ exhibitors, initialBooth }: { exhibitors: ExhibitorWi
         {route ? (
           <Polyline
             positions={route}
-            pathOptions={{ color: "#E96B2C", weight: 6, dashArray: "12 8", lineCap: "round", lineJoin: "round" }}
+            pathOptions={{
+              color: "#0F766E",
+              weight: 9,
+              opacity: 0.95,
+              lineCap: "round",
+              lineJoin: "round"
+            }}
           />
         ) : null}
       </MapContainer>
@@ -299,19 +342,87 @@ export function BoothMap({ exhibitors, initialBooth }: { exhibitors: ExhibitorWi
         onReset={resetMap}
       />
 
-      <div className="absolute bottom-24 left-3 right-3 z-[900] rounded-2xl bg-white/95 p-3 shadow-soft backdrop-blur md:left-auto md:right-3 md:top-24 md:bottom-auto md:block md:w-72">
-        <label className="text-xs font-black uppercase tracking-wide text-safari-orange">Start from QR checkpoint</label>
-        <select value={qrCheckpoint} onChange={(event) => setQrCheckpoint(event.target.value)} className="mt-2 w-full rounded-xl border border-safari-gold/25 bg-safari-cream px-3 py-2 text-sm font-bold text-safari-ink outline-none">
+      <div className="absolute bottom-24 left-3 right-3 z-[900] max-h-[58vh] overflow-y-auto rounded-2xl border border-safari-gold/20 bg-white/95 p-3 shadow-soft backdrop-blur md:left-auto md:right-6 md:top-24 md:bottom-auto md:w-80 md:max-h-[calc(100vh-150px)]">
+        <label className="text-xs font-black uppercase tracking-wide text-safari-orange">
+          Start from QR checkpoint
+        </label>
+
+        <select
+          value={qrCheckpoint}
+          onChange={(event) => setQrCheckpoint(event.target.value)}
+          className="mt-2 w-full rounded-xl border border-safari-gold/25 bg-safari-cream px-3 py-2 text-sm font-bold text-safari-ink outline-none"
+        >
           {QR_CHECKPOINTS.map((checkpoint) => (
-            <option key={checkpoint.id} value={checkpoint.id}>{checkpoint.name}</option>
+            <option key={checkpoint.id} value={checkpoint.id}>
+              {checkpoint.name}
+            </option>
           ))}
         </select>
-        {routeDetails ? (
-          <div className="mt-3 rounded-xl bg-safari-forest p-3 text-white">
-            <div className="flex items-center gap-2 text-sm font-black"><Navigation size={16} /> {routeDetails.distance}m · {routeDetails.estimatedMinutes} min</div>
-            <ol className="mt-2 list-decimal space-y-1 pl-4 text-xs leading-5 text-white/82">
-              {routeDetails.instructions.map((step) => <li key={step}>{step}</li>)}
-            </ol>
+
+        {selected ? (
+          <div className="mt-3 rounded-xl border border-safari-gold/20 bg-safari-cream p-3">
+            <p className="text-xs font-black uppercase tracking-wide text-safari-orange">
+              Selected destination
+            </p>
+
+            <h3 className="mt-1 text-sm font-black text-safari-ink">
+              {selected.booth?.boothNumber} · {selected.companyName}
+            </h3>
+
+            <p className="mt-1 text-xs text-safari-muted">
+              {selected.category.name}
+            </p>
+
+            {routeDetails ? (
+              <div className="mt-3 rounded-xl bg-safari-forest p-3 text-white">
+                <div className="flex items-center gap-2 text-sm font-black">
+                  <Navigation size={16} />
+                  Estimated walk: {routeDetails.estimatedMinutes} min · {routeDetails.distance}m
+                </div>
+
+                <ol className="mt-2 list-decimal space-y-1 pl-4 text-xs leading-5 text-white/82">
+                  {routeDetails.instructions.map((step) => (
+                    <li key={step}>{step}</li>
+                  ))}
+                </ol>
+              </div>
+            ) : null}
+          </div>
+        ) : (
+          <div className="mt-3 rounded-xl bg-safari-cream p-3 text-sm text-safari-muted">
+            Select a booth to see estimated walking time and recommended nearby exhibitors.
+          </div>
+        )}
+
+        {selected && recommendations.length > 0 ? (
+          <div className="mt-3 rounded-xl border border-safari-gold/20 bg-white p-3">
+            <p className="text-xs font-black uppercase tracking-wide text-safari-orange">
+              Recommended next
+            </p>
+
+            <div className="mt-2 space-y-2">
+              {recommendations.map(({ exhibitor, distance }) => (
+                <button
+                  key={exhibitor.id}
+                  type="button"
+                  onClick={() => void selectBooth(exhibitor)}
+                  className="w-full rounded-lg border border-safari-gold/15 bg-safari-cream px-3 py-2 text-left transition hover:border-safari-orange hover:bg-white"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="line-clamp-1 text-xs font-black text-safari-ink">
+                      {exhibitor.companyName}
+                    </p>
+                    <span className="shrink-0 rounded-full bg-white px-2 py-0.5 text-[10px] font-black text-safari-orange">
+                      {exhibitor.booth?.boothNumber}
+                    </span>
+                  </div>
+
+                  <p className="mt-1 text-[11px] text-safari-muted">
+                    {exhibitor.category.name} · approx. {distance}m away
+                  </p>
+                </button>
+              ))}
+            </div>
           </div>
         ) : null}
       </div>
