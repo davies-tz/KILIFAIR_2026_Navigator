@@ -3008,7 +3008,12 @@ async function main() {
     )
   );
 
-  const bySlug = Object.fromEntries(savedCategories.map((category: { slug: string }) => [category.slug, category]));
+  const bySlug = Object.fromEntries(
+  savedCategories.map((category: { id: string; slug: string }) => [
+    category.slug,
+    category
+  ])
+);
 
   for (const [index, item] of rawExhibitors.entries()) {
     const categorySlug = categoryFor(item);
