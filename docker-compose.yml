@@ -1,0 +1,42 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: kilifair-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: kilifair
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: kilifair123
+    ports:
+      - "5432:5432"
+    volumes:
+      - kilifair_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d kilifair"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: kilifair-app
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://postgres:kilifair123@db:5432/kilifair?schema=public
+      JWT_SECRET: kilifair-local-docker-secret-change-before-production
+      NEXT_PUBLIC_APP_URL: http://localhost:3000
+    ports:
+      - "3000:3000"
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - /app/.next
+    command: sh -c "npx prisma db push && npm run prisma:seed && npm run dev -- --hostname 0.0.0.0"
+
+volumes:
+  kilifair_postgres_data:

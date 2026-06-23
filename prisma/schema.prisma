@@ -1,0 +1,100 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  ADMIN
+}
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  passwordHash String
+  role         UserRole @default(ADMIN)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model Category {
+  id         String      @id @default(cuid())
+  name       String      @unique
+  slug       String      @unique
+  exhibitors Exhibitor[]
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+}
+
+model Exhibitor {
+  id          String       @id @default(cuid())
+  companyName String
+  slug        String       @unique
+  description String
+  services    String[]
+  contactName String?
+  email       String?
+  phone       String?
+  website     String?
+  instagram   String?
+  facebook    String?
+  linkedin    String?
+  categoryId  String
+  category    Category     @relation(fields: [categoryId], references: [id])
+  booth       Booth?
+  images      BoothImage[]
+  views       BoothView[]
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@index([companyName])
+  @@index([categoryId])
+}
+
+model Booth {
+  id          String    @id @default(cuid())
+  boothNumber String
+  hall        String
+  latitude    Float
+  longitude   Float
+  polygon     Json?
+  exhibitorId String    @unique
+  exhibitor   Exhibitor @relation(fields: [exhibitorId], references: [id], onDelete: Cascade)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([boothNumber])
+}
+
+model BoothImage {
+  id          String    @id @default(cuid())
+  url         String
+  alt         String
+  exhibitorId String
+  exhibitor   Exhibitor @relation(fields: [exhibitorId], references: [id], onDelete: Cascade)
+  createdAt   DateTime  @default(now())
+}
+
+model SearchLog {
+  id        String   @id @default(cuid())
+  query     String
+  filters   Json?
+  createdAt DateTime @default(now())
+
+  @@index([query])
+  @@index([createdAt])
+}
+
+model BoothView {
+  id          String    @id @default(cuid())
+  exhibitorId String
+  exhibitor   Exhibitor @relation(fields: [exhibitorId], references: [id], onDelete: Cascade)
+  createdAt   DateTime  @default(now())
+
+  @@index([exhibitorId])
+  @@index([createdAt])
+}

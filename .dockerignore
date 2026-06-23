@@ -1,0 +1,13 @@
+node_modules
+.next
+.env
+.env.local
+.env.*.local
+coverage
+dist
+*.log
+Dockerfile
+docker-compose.yml
+.git
+.agents
+.codex
